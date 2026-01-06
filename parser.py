@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 try:
     from tree_sitter import Language, Parser
@@ -10,7 +10,7 @@ except ImportError:
     sys.exit(1)
 
 
-#déclaration des termes
+# déclaration des termes
 NODE_TYPES = [
     'class_declaration',
     'method_declaration',
@@ -22,7 +22,7 @@ NODE_TYPES = [
 ]
 
 
-def extract_name(node): #extrait le nom d'un nœud Java selon son type.
+def extract_name(node):  # extrait le nom d'un nœud Java selon son type.
     if 'declaration' in node.type:
         name_node = node.child_by_field_name('name')
         return name_node.text.decode('utf8') if name_node else None
@@ -38,18 +38,17 @@ def extract_name(node): #extrait le nom d'un nœud Java selon son type.
     return None
 
 
-def traverse(node, names): #Parcourt récursivement l'arbre syntaxique et collecte les noms déclarés.
+def traverse(node, names_list):  # parcourt récursivement l'arbre syntaxique et collecte les noms déclarés.
     if node.type in NODE_TYPES:
         name = extract_name(node)
         if name and len(name) > 0:
-            names[name] += 1
+            names_list.append(name)
     
     for child in node.children:
-        traverse(child, names)
+        traverse(child, names_list)
 
 
-def parse_file(filepath): #Parse un fichier Java et retourne l'arbre syntaxique.
-    
+def parse_file(filepath):  # parse un fichier Java et retourne l'arbre syntaxique.
     file_path = Path(filepath)
     
     if not file_path.exists():
@@ -63,11 +62,9 @@ def parse_file(filepath): #Parse un fichier Java et retourne l'arbre syntaxique.
     
     parser = Parser()
     
-   
     java_language = Language(tsjava.language())
-    #gestion des versions de tree sitter
+    # gestion des versions de tree sitter
     if hasattr(parser, 'set_language'):
-
         parser.set_language(java_language)
     elif hasattr(parser, 'language'):  
         parser.language = java_language
@@ -79,54 +76,54 @@ def parse_file(filepath): #Parse un fichier Java et retourne l'arbre syntaxique.
     return tree, tree.root_node
 
 
-def analyze_file(filepath): #Analyse un fichier Java et affiche les noms déclarés avec leurs occurrences.
+def analyze_file(filepath, return_data=False):  # analyse un fichier Java.
     try:
         tree, root_node = parse_file(filepath)
         
-        names = defaultdict(int)
-        traverse(root_node, names)
+        names_list = []
+        traverse(root_node, names_list)
         
+        # compter les occurrences
+        name_counter = Counter(names_list)
+        sorted_names = sorted(name_counter.items(), key=lambda x: x[1], reverse=True)
         
-        sorted_names = sorted(names.items(), key=lambda x: x[1], reverse=True)
+        if return_data:
+            return {
+                'lang': 'java',
+                'names_list': names_list,
+                'sorted': sorted_names,
+                'total': len(names_list),
+                'unique': len(name_counter)
+            }
         
-        
+        # ffichage normal
         print(f"\n{filepath}")
         print(f"Langage détecté: JAVA")
         print(f"\nNoms déclarés ({len(sorted_names)} uniques):\n")
         
         for name, count in sorted_names:
             plural = 's' if count > 1 else ''
+
             print(f"{name:<30} → {count} occurrence{plural}")
         
-        total = sum(count for _, count in sorted_names)
+        total = len(names_list)
         print(f"\nTotal: {total} déclarations\n")
         
     except Exception as e:
-        print(f"Erreur: {e}", file=sys.stderr)
-        sys.exit(1)
+        if return_data:
+            raise e
+        else:
+
+            print(f"Erreur: {e}", file=sys.stderr)
+            sys.exit(1)
 
 
-def analyze_file_for_test(filepath): #analyze_file mais qui retourne les données au lieu de les afficher.
-   
-    tree, root_node = parse_file(filepath)
-    names = defaultdict(int)
-    traverse(root_node, names)
-    
-    sorted_names = sorted(names.items(), key=lambda x: x[1], reverse=True)
-    
-    return {
-        'lang': 'java',
-        'names': dict(names),
-        'sorted': sorted_names
-    }
+def analyze_file_for_test(filepath):  # analyze_file mais qui retourne les données au lieu de les afficher.
+    return analyze_file(filepath, return_data=True)
 
 
 def main():
-    
     if len(sys.argv) < 2:
-        print('Usage: python parser.py <fichier.java>')
-        print('\nAnalyse un fichier Java et extrait tous les noms déclarés')
-        print('(classes, méthodes, variables, paramètres, interfaces, enums, champs)')
         sys.exit(1)
     
     filepath = sys.argv[1]
